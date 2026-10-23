@@ -194,3 +194,28 @@ Open `http://127.0.0.1:8090/setup.php`, set the password, then sign in. Paste
 
 Only the machine running the collector can reach `127.0.0.1`, so a loopback
 panel is a test rig, not a deployment. Swap in the real host URL for that.
+## Cookie encryption on modern Chromium
+
+Two layers sit between the collector and a usable cookie value:
+
+- **v10 / v11** - the value is DPAPI-wrapped AES-256-GCM keyed from
+  `Local State -> os_crypt.encrypted_key`. The collector reads this.
+- **v20** - Chromium 127+ app-bound encryption. The key is not in `Local State`
+  in any form a user process can unwrap; only Chrome's elevation service can,
+  and it validates that the caller is a binary inside Chrome's own install
+  directory. On a machine-level install (Program Files) that means
+  administrator rights. Values in this format are skipped, not corrupted.
+
+So a browser profile that has been logged in *before* the v20 rollout still
+yields readable cookies, and a fresh login into a current Chrome usually does
+not. The values also carry a `SHA-256(host_key)` prefix that has to be stripped
+after decryption - skip it and every cookie comes out as 32 bytes of noise.
+
+To exercise the whole chain on a modern browser anyway, launch it with
+app-bound encryption disabled and log in there:
+
+```
+chrome.exe --disable-features=AppBoundEncryption --user-data-dir="%TEMP%\rose-test"
+```
+
+That profile writes v10 values, which the collector reads normally.
