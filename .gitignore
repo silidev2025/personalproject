@@ -1,0 +1,14 @@
+# secrets and machine-local state
+panel/config.php
+panel/data/panel.sqlite
+panel/data/panel.sqlite-wal
+panel/data/panel.sqlite-shm
+
+# build output
+dist/
+
+# csc scratch
+*.pdb
+*.user
+obj/
+bin/
