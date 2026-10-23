@@ -160,13 +160,20 @@ and the admin hash must never land in a public repo.
 GitHub Pages cannot run this: Pages serves static files only, and the panel is
 PHP with a database. GitHub holds the source, not the web server.
 
+Vercel is the same problem in a different shape. PHP only runs there through a
+community runtime, and the filesystem is read-only apart from an ephemeral
+`/tmp` - every capture, license and build row would disappear between
+invocations. To survive there the storage layer would have to move to Postgres
+or Turso; as written it needs a real PHP process with a writable disk.
+
 Working options:
 
 - any cPanel-style PHP host (PHP 7.4+, `pdo_sqlite`) - upload `panel/` into
   `public_html` or a subfolder, then open `setup.php`
-- a small VPS - `apt install php-fpm nginx`, root pointed at `panel/`
-- a container host with a PHP image, for example `php:8.3-apache` with
-  `pdo_sqlite` enabled, `panel/` mounted at `/var/www/html`
+- a container host with a persistent disk - `panel/Dockerfile` is ready;
+  `render.yaml` deploys it on Render (disk needs the Starter plan)
+- a small VPS - `docker run -d -p 80:80 -v rose-data:/var/www/html/data rose-panel`
+  or `apt install php-fpm nginx` with the root pointed at `panel/`
 - a Codespace for a short-lived test - `php -S 0.0.0.0:8080 -t panel` with the
   port made public; the URL dies when the Codespace stops
 

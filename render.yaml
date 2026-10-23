@@ -1,0 +1,15 @@
+# Render blueprint. Deploy: Render dashboard -> New -> Blueprint -> pick this repo.
+# A persistent disk requires the Starter plan or higher.
+services:
+  - type: web
+    name: rose-panel
+    runtime: docker
+    dockerfilePath: ./panel/Dockerfile
+    dockerContext: ./panel
+    plan: starter
+    healthCheckPath: /login.php
+    autoDeploy: true
+    disk:
+      name: rose-data
+      mountPath: /var/www/html/data
+      sizeGB: 1

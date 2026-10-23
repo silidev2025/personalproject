@@ -1,0 +1,7 @@
+# never bake secrets or the live database into an image
+config.php
+data/panel.sqlite
+data/panel.sqlite-wal
+data/panel.sqlite-shm
+Dockerfile
+.dockerignore
