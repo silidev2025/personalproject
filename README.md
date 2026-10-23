@@ -179,3 +179,18 @@ Working options:
 
 Whichever host you pick, paste its base URL into the app under
 **Account -> Panel URL**; the collector posts to `<base>/api/collect.php`.
+## Testing without a host
+
+No website needed. Any machine with PHP can serve the panel on loopback:
+
+```
+php -S 127.0.0.1:8090 -t panel
+```
+
+Open `http://127.0.0.1:8090/setup.php`, set the password, then sign in. Paste
+`http://127.0.0.1:8090` into the app under **Account -> Panel URL** - plain
+`http` is accepted for loopback addresses only, everything else must be
+`https`. Build, run the exe, and the capture lands on the local dashboard.
+
+Only the machine running the collector can reach `127.0.0.1`, so a loopback
+panel is a test rig, not a deployment. Swap in the real host URL for that.

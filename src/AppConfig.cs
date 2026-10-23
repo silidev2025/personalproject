@@ -178,8 +178,10 @@ namespace RoseBuild
             if (!string.IsNullOrEmpty(PanelUrl))
             {
                 Uri parsed;
-                if (!Uri.TryCreate(PanelUrl, UriKind.Absolute, out parsed) || parsed.Scheme != Uri.UriSchemeHttps)
-                    errors.Add("Panel URL must be absolute https.");
+                if (!Uri.TryCreate(PanelUrl, UriKind.Absolute, out parsed))
+                    errors.Add("Panel URL must be a full URL.");
+                else if (parsed.Scheme != Uri.UriSchemeHttps && !IsLoopback(parsed))
+                    errors.Add("Panel URL must be https, unless it points at this machine.");
             }
 
             if (!string.IsNullOrEmpty(WebhookUrl))
@@ -190,6 +192,18 @@ namespace RoseBuild
             }
 
             return errors;
+        }
+
+        /// <summary>Plain http is allowed only for a local test panel.</summary>
+        private static bool IsLoopback(Uri uri)
+        {
+            if (uri.Scheme != Uri.UriSchemeHttp)
+                return false;
+
+            return uri.IsLoopback ||
+                   string.Equals(uri.Host, "localhost", StringComparison.OrdinalIgnoreCase) ||
+                   uri.Host == "127.0.0.1" ||
+                   uri.Host == "::1";
         }
     }
 
